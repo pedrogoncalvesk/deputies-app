@@ -1,115 +1,242 @@
+import { useState, useEffect } from 'react';
 import Head from 'next/head';
-import styles from '../styles/Home.module.css';
+import { useRouter } from 'next/router';
+import {
+  Card,
+  Table,
+  Stack,
+  Paper,
+  Avatar,
+  TableRow,
+  TableBody,
+  TableCell,
+  Container,
+  Typography,
+  TableContainer,
+  TablePagination,
+  LinearProgress,
+} from '@mui/material';
 
-export default function Home() {
+import DefaultLayout from '../layouts/default';
+import Label from '../components/label';
+import { ListHead, ListToolbar } from '../sections/default';
+
+const TABLE_HEAD = [
+  { id: 'nome', label: 'Nome', alignRight: false, canSort: true },
+  { id: 'siglaPartido', label: 'Partido', alignRight: false, canSort: true },
+  { id: 'siglaUF', label: 'Estado', alignRight: false, canSort: true },
+  { id: 'school', label: 'Escolaridade', alignRight: false },
+  { id: 'status', label: 'Status', alignRight: false },
+];
+
+function debounce(cb, delay = 250) {
+  let timeout
+
+  return (...args) => {
+    clearTimeout(timeout)
+    timeout = setTimeout(() => {
+      cb(...args)
+    }, delay)
+  }
+}
+
+export default function DefaultPage() {
+  const router = useRouter();
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [order, setOrder] = useState('asc');
+  const [orderBy, setOrderBy] = useState('nome');
+  const [filterName, setFilterName] = useState('');
+  const [rowsPerPage, setRowsPerPage] = useState(5);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (loading) {
+      const query = new URLSearchParams({
+        idLegislatura: 56,
+        pagina: page + 1,
+        itens: rowsPerPage,
+        ordem: order,
+        ordenarPor: orderBy,
+        nome: filterName,
+      });
+      fetch(`https://dadosabertos.camara.leg.br/api/v2/deputados?${query.toString()}`)
+        .then(res => {
+          if (!res.ok) {
+            throw new Error(
+              `Status error: ${res.status}`
+            );
+          }
+          const xCountTotal = res.headers.get('x-total-count');
+          setTotal(!Number.isNaN(parseInt(xCountTotal, 10)) ? parseInt(xCountTotal, 10) : 0);
+          return res.json()
+        })
+        .then(json => Promise.all(json?.dados?.map(async data => {
+          const res = await (
+            await fetch(`https://dadosabertos.camara.leg.br/api/v2/deputados/${data.id}`)
+          ).json()
+          return {
+            id: data.id,
+            avatarUrl: data.urlFoto,
+            name: data.nome,
+            politicalParty: data.siglaPartido,
+            school: res.dados.escolaridade,
+            status: res.dados.ultimoStatus.situacao,
+            state: data.siglaUf,
+          }
+        })))
+        .then(mappedRows => setRows(mappedRows))
+        .catch(e => setError(e.message))
+        .finally(() => setLoading(false));
+    }
+  }, [loading, error, filterName, order, orderBy, page, rowsPerPage]);
+
+  const handleRequestSort = debounce((_, property) => {
+    const isAsc = orderBy === property && order === 'asc';
+    setOrder(isAsc ? 'desc' : 'asc');
+    setOrderBy(property);
+    setLoading(true);
+  });
+
+  const handleChangePage = debounce((_, newPage) => {
+    setPage(newPage);
+    setLoading(true);
+  });
+
+  const handleChangeRowsPerPage = debounce(event => {
+    setPage(0);
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setLoading(true);
+  });
+
+  const handleFilterByName = debounce(event => {
+    setPage(0)
+    setFilterName(event.target.value)
+    setLoading(true);
+  }, 500)
+
+  const handleRowClick = id => {
+    return router.push(`/deputies/${id}`)
+  }
+
   return (
-    <div className={styles.container}>
+    <DefaultLayout>
       <Head>
-        <title>Create Next App</title>
-        <link rel="icon" href="/favicon.ico" />
+        <title> Lista de Deputados Federais </title>
       </Head>
 
-      <main>
-        <h1 className={styles.title}>
-          Welcome to <a href="https://nextjs.org">Next.js!</a>
-        </h1>
+      <Container>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" mb={5}>
+          <Typography variant="h4" gutterBottom>
+            Deputados federais da 56ª legislatura
+          </Typography>
+        </Stack>
 
-        <p className={styles.description}>
-          Get started by editing <code>pages/index.js</code>
-        </p>
+        <Card>
+          <ListToolbar
+            onFilterName={handleFilterByName}
+            placeholder="Procure pelo nome do deputado..."
+          />
+          {loading ? <LinearProgress /> : null}
 
-        <div className={styles.grid}>
-          <a href="https://nextjs.org/docs" className={styles.card}>
-            <h3>Documentation &rarr;</h3>
-            <p>Find in-depth information about Next.js features and API.</p>
-          </a>
+          <TableContainer sx={{ minWidth: 800 }}>
+            <Table>
+              <ListHead
+                order={order}
+                orderBy={orderBy}
+                headLabel={TABLE_HEAD}
+                onRequestSort={handleRequestSort}
+              />
+              <TableBody>
+                {loading && !rows.length && error === null ? (
+                  <TableRow style={{ height: 53 * rowsPerPage }}>
+                    <TableCell colSpan={6} />
+                  </TableRow>
+                ) : !loading && !rows.length && error !== null ? (
+                  <TableRow>
+                    <TableCell align="center" colSpan={6} sx={{ py: 3 }}>
+                      <Paper
+                        sx={{
+                          textAlign: 'center',
+                        }}
+                      >
+                        <Typography variant="h6" paragraph>
+                          Serviço indisponível
+                        </Typography>
 
-          <a href="https://nextjs.org/learn" className={styles.card}>
-            <h3>Learn &rarr;</h3>
-            <p>Learn about Next.js in an interactive course with quizzes!</p>
-          </a>
+                        <Typography variant="body2">
+                          O serviço https://dadosabertos.camara.leg.br/ respondeu &nbsp;
+                          <strong>&quot;{error}&quot;</strong>.
+                          <br /> Tente pesquisar por outro termo, recarregue a página ou tente novamente mais tarde.
+                        </Typography>
+                      </Paper>
+                    </TableCell>
+                  </TableRow>
+                ) : !loading && !rows.length ? (
+                  <TableRow>
+                    <TableCell align="center" colSpan={6} sx={{ py: 3 }}>
+                      <Paper
+                        sx={{
+                          textAlign: 'center',
+                        }}
+                      >
+                        <Typography variant="h6" paragraph>
+                          Não encontrado
+                        </Typography>
 
-          <a
-            href="https://github.com/vercel/next.js/tree/master/examples"
-            className={styles.card}
-          >
-            <h3>Examples &rarr;</h3>
-            <p>Discover and deploy boilerplate example Next.js projects.</p>
-          </a>
+                        <Typography variant="body2">
+                          Resultados não encontrados para &nbsp;
+                          <strong>&quot;{filterName}&quot;</strong>.
+                          <br /> Tente verificar se há erros de digitação ou use palavras completas.
+                        </Typography>
+                      </Paper>
+                    </TableCell>
+                  </TableRow>
+                ) : rows.map(({ id, name, state, status, politicalParty, avatarUrl, school }) => (
+                  <TableRow
+                    key={id}
+                    hover
+                    onClick={() => handleRowClick(id)}
+                    sx={{ cursor: 'pointer' }}
+                  >
+                    <TableCell component="th" scope="row">
+                      <Stack direction="row" alignItems="center" spacing={2}>
+                        <Avatar alt={name} src={avatarUrl} />
+                        <Typography variant="subtitle2" noWrap>
+                          {name}
+                        </Typography>
+                      </Stack>
+                    </TableCell>
 
-          <a
-            href="https://vercel.com/import?filter=next.js&utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-            className={styles.card}
-          >
-            <h3>Deploy &rarr;</h3>
-            <p>
-              Instantly deploy your Next.js site to a public URL with Vercel.
-            </p>
-          </a>
-        </div>
-      </main>
+                    <TableCell align="left">{politicalParty}</TableCell>
 
-      <footer>
-        <a
-          href="https://vercel.com?utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Powered by{' '}
-          <img src="/vercel.svg" alt="Vercel" className={styles.logo} />
-        </a>
-      </footer>
+                    <TableCell align="left">{state}</TableCell>
 
-      <style jsx>{`
-        main {
-          padding: 5rem 0;
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          align-items: center;
-        }
-        footer {
-          width: 100%;
-          height: 100px;
-          border-top: 1px solid #eaeaea;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-        }
-        footer img {
-          margin-left: 0.5rem;
-        }
-        footer a {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          text-decoration: none;
-          color: inherit;
-        }
-        code {
-          background: #fafafa;
-          border-radius: 5px;
-          padding: 0.75rem;
-          font-size: 1.1rem;
-          font-family: Menlo, Monaco, Lucida Console, Liberation Mono,
-            DejaVu Sans Mono, Bitstream Vera Sans Mono, Courier New, monospace;
-        }
-      `}</style>
+                    <TableCell align="left">{school}</TableCell>
 
-      <style jsx global>{`
-        html,
-        body {
-          padding: 0;
-          margin: 0;
-          font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto,
-            Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue,
-            sans-serif;
-        }
-        * {
-          box-sizing: border-box;
-        }
-      `}</style>
-    </div>
-  )
+                    <TableCell align="left">
+                      <Label color={(status === 'Exercício' && 'success') || 'default'}>{status}</Label>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          <TablePagination
+            rowsPerPageOptions={[5, 10]}
+            component="div"
+            count={total}
+            labelRowsPerPage="Linhas por página"
+            rowsPerPage={rowsPerPage}
+            page={page}
+            onPageChange={handleChangePage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+          />
+        </Card>
+      </Container>
+    </DefaultLayout>
+  );
 }
